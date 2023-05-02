@@ -1,15 +1,13 @@
 package main
 
 type Config struct {
-	Host     string `yaml:"host"`
-	Port     int    `yaml:"port"`
-	LMDBRoot string `yaml:"lmdb_root"`
-
-	Channel
-	Channels map[string]Channel `yaml:"channels"`
+	Host     string            `yaml:"host"`
+	Port     int               `yaml:"port"`
+	LMDBRoot string            `yaml:"lmdb_root"`
+	Servers  map[string]Server `yaml:"servers"`
 }
 
-type Channel struct {
-	Name  string   `yaml:"name"`
-	Admin []string `yaml:"admins"`
+type Server struct {
+	Name   string   `yaml:"name"`
+	Admins []string `yaml:"admins"`
 }

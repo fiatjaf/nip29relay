@@ -1,11 +1,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
 
-	"github.com/fiatjaf/relayer"
+	"github.com/fiatjaf/relayer/v2"
 	"github.com/kelseyhightower/envconfig"
 	"github.com/nbd-wtf/go-nostr"
 )
@@ -18,7 +19,7 @@ func (r *Relay) Name() string {
 	return "GroupsRelay"
 }
 
-func (r *Relay) Storage() relayer.Storage {
+func (r *Relay) Storage(ctx context.Context) relayer.Storage {
 	return r.storage
 }
 
@@ -43,7 +44,7 @@ func (r *Relay) Init() error {
 	return nil
 }
 
-func (r *Relay) AcceptEvent(evt *nostr.Event) bool {
+func (r *Relay) AcceptEvent(ctx context.Context, evt *nostr.Event) bool {
 	// block events that are too large
 	jsonb, _ := json.Marshal(evt)
 	if len(jsonb) > 10000 {

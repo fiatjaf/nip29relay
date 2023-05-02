@@ -7,8 +7,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 
-	"github.com/fiatjaf/relayer"
+	"github.com/fiatjaf/relayer/v2"
 	"github.com/urfave/cli/v2"
 	"gopkg.in/yaml.v3"
 )
@@ -34,6 +35,7 @@ func main() {
 					if err := yaml.Unmarshal(b, &config); err != nil {
 						return err
 					}
+
 					c.Context = context.WithValue(c.Context, "config", config)
 					return nil
 				},
@@ -49,14 +51,27 @@ func main() {
 
 					http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 						id := r.URL.Path[1:]
+
+						if _, ok := config.Servers[id]; !ok {
+							fmt.Printf("server %s not allowed\n", id)
+							return
+						}
+
 						server, ok := servers[id]
 						if !ok {
-							relay := &Relay{storage: &lmdbchatbackend{lmdbPath: config.LMDBRoot}}
-							server = relayer.NewServer("", relay)
+							dbPath := filepath.Join(config.LMDBRoot, id)
+							os.MkdirAll(dbPath, 0700)
+							relay := &Relay{storage: &lmdbchatbackend{lmdbPath: dbPath}}
+							var err error
+							server, err = relayer.NewServer(relay)
+							if err != nil {
+								fmt.Println("error creating server:", err)
+								return
+							}
+
 							servers[id] = server
 						}
-						router := server.Router()
-						router.ServeHTTP(w, r)
+						server.ServeHTTP(w, r)
 					})
 
 					hostname := fmt.Sprintf("%s:%d", config.Host, config.Port)

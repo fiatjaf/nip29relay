@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -63,7 +64,9 @@ func (db lmdbchatbackend) getChannel(id string) (*lmdb.DBI, error) {
 	return channel, nil
 }
 
-func (db lmdbchatbackend) QueryEvents(filter *nostr.Filter) (events []nostr.Event, err error) {
+func (db lmdbchatbackend) QueryEvents(ctx context.Context, filter *nostr.Filter) (ch chan *nostr.Event, err error) {
+	ch = make(chan *nostr.Event)
+
 	channelIds, _ := filter.Tags["c"]
 	if len(channelIds) == 0 {
 		channelIds = []string{""}
@@ -110,6 +113,13 @@ func (db lmdbchatbackend) QueryEvents(filter *nostr.Filter) (events []nostr.Even
 
 					i := 0
 					for {
+						// exit early if the context was canceled
+						select {
+						case <-ctx.Done():
+							break
+						default:
+						}
+
 						k, v, err := cursor.Get(nil, nil, lmdb.PrevNoDup)
 						if err != nil {
 							break
@@ -124,8 +134,7 @@ func (db lmdbchatbackend) QueryEvents(filter *nostr.Filter) (events []nostr.Even
 							continue
 						}
 
-						events = append(events, evt)
-
+						ch <- &evt
 						i++
 						if i == limit {
 							break
@@ -138,15 +147,19 @@ func (db lmdbchatbackend) QueryEvents(filter *nostr.Filter) (events []nostr.Even
 		}(channelId)
 	}
 
-	wg.Wait()
-	return events, nil
+	go func() {
+		wg.Wait()
+		close(ch)
+	}()
+
+	return ch, nil
 }
 
-func (db lmdbchatbackend) DeleteEvent(id string, pubkey string) error {
+func (db lmdbchatbackend) DeleteEvent(ctx context.Context, id string, pubkey string) error {
 	return fmt.Errorf("delete functionality not implemented")
 }
 
-func (db lmdbchatbackend) SaveEvent(event *nostr.Event) error {
+func (db lmdbchatbackend) SaveEvent(ctx context.Context, event *nostr.Event) error {
 	channelTag := event.Tags.GetFirst([]string{"c", ""})
 	channelId := ""
 	if channelTag != nil {
