@@ -45,6 +45,11 @@ func (r *Relay) Init() error {
 }
 
 func (r *Relay) AcceptEvent(ctx context.Context, evt *nostr.Event) bool {
+	// only accept kind 9
+	if evt.Kind != 9 {
+		return false
+	}
+
 	// block events that are too large
 	jsonb, _ := json.Marshal(evt)
 	if len(jsonb) > 10000 {

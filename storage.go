@@ -12,6 +12,8 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 )
 
+const ROOT_CHANNEL_ID = "_"
+
 var serial uint32
 
 type lmdbchatbackend struct {
@@ -23,7 +25,7 @@ type lmdbchatbackend struct {
 	mutex    sync.Mutex
 }
 
-func (db lmdbchatbackend) Init() error {
+func (db *lmdbchatbackend) Init() error {
 	// initialize lmdb
 	env, err := lmdb.NewEnv()
 	if err != nil {
@@ -31,16 +33,22 @@ func (db lmdbchatbackend) Init() error {
 	}
 
 	env.SetMaxDBs(21)
+	env.SetMaxReaders(500)
+	env.SetMapSize(1 << 38) // ~273GB
 
-	err = env.Open(db.lmdbPath, 0, 0644)
+	err = env.Open(db.lmdbPath, lmdb.NoTLS, 0644)
 	if err != nil {
 		return err
 	}
+	db.lmdbEnv = env
+
+	// create channels map of dbis
+	db.channels = make(map[string]*lmdb.DBI)
 
 	return nil
 }
 
-func (db lmdbchatbackend) getChannel(id string) (*lmdb.DBI, error) {
+func (db *lmdbchatbackend) getChannel(id string) (*lmdb.DBI, error) {
 	db.mutex.Lock()
 	defer db.mutex.Unlock()
 	if channel, ok := db.channels[id]; ok {
@@ -50,7 +58,7 @@ func (db lmdbchatbackend) getChannel(id string) (*lmdb.DBI, error) {
 	// not opened yet, so open and store it
 	var channel *lmdb.DBI
 	if err := db.lmdbEnv.Update(func(txn *lmdb.Txn) error {
-		if dbi, err := txn.OpenDBI(id, 0); err != nil {
+		if dbi, err := txn.OpenDBI(id, lmdb.Create); err != nil {
 			return err
 		} else {
 			channel = &dbi
@@ -64,12 +72,12 @@ func (db lmdbchatbackend) getChannel(id string) (*lmdb.DBI, error) {
 	return channel, nil
 }
 
-func (db lmdbchatbackend) QueryEvents(ctx context.Context, filter *nostr.Filter) (ch chan *nostr.Event, err error) {
+func (db *lmdbchatbackend) QueryEvents(ctx context.Context, filter *nostr.Filter) (ch chan *nostr.Event, err error) {
 	ch = make(chan *nostr.Event)
 
 	channelIds, _ := filter.Tags["c"]
 	if len(channelIds) == 0 {
-		channelIds = []string{""}
+		channelIds = []string{ROOT_CHANNEL_ID}
 	}
 
 	var until uint32 = uint32(nostr.Now())
@@ -92,6 +100,7 @@ func (db lmdbchatbackend) QueryEvents(ctx context.Context, filter *nostr.Filter)
 			defer wg.Done()
 
 			if channel, err := db.getChannel(channelId); err != nil {
+				log.Error().Err(err).Str("channel", channelId).Msg("failed to get channel")
 				return
 			} else {
 				db.lmdbEnv.View(func(txn *lmdb.Txn) error {
@@ -99,17 +108,14 @@ func (db lmdbchatbackend) QueryEvents(ctx context.Context, filter *nostr.Filter)
 
 					cursor, err := txn.OpenCursor(*channel)
 					if err != nil {
+						log.Error().Err(err).Str("channel", channelId).Msg("failed to open cursor")
 						return err
 					}
 					defer cursor.Close()
 
-					initial := make([]byte, 8)
+					initial := make([]byte, 4)
 					binary.BigEndian.PutUint32(initial, until)
-
-					_, _, err = cursor.Get(initial, nil, lmdb.SetRange)
-					if err != nil {
-						return err
-					}
+					nextKey := initial
 
 					i := 0
 					for {
@@ -120,12 +126,12 @@ func (db lmdbchatbackend) QueryEvents(ctx context.Context, filter *nostr.Filter)
 						default:
 						}
 
-						k, v, err := cursor.Get(nil, nil, lmdb.PrevNoDup)
+						nextKey, v, err := cursor.Get(nextKey, nil, lmdb.PrevNoDup)
 						if err != nil {
 							break
 						}
 
-						if ts := binary.BigEndian.Uint32(k[0:4]); ts < since {
+						if ts := binary.BigEndian.Uint32(nextKey[0:4]); ts < since {
 							break
 						}
 
@@ -155,19 +161,19 @@ func (db lmdbchatbackend) QueryEvents(ctx context.Context, filter *nostr.Filter)
 	return ch, nil
 }
 
-func (db lmdbchatbackend) DeleteEvent(ctx context.Context, id string, pubkey string) error {
+func (db *lmdbchatbackend) DeleteEvent(ctx context.Context, id string, pubkey string) error {
 	return fmt.Errorf("delete functionality not implemented")
 }
 
-func (db lmdbchatbackend) SaveEvent(ctx context.Context, event *nostr.Event) error {
+func (db *lmdbchatbackend) SaveEvent(ctx context.Context, event *nostr.Event) error {
 	channelTag := event.Tags.GetFirst([]string{"c", ""})
-	channelId := ""
+	channelId := ROOT_CHANNEL_ID
 	if channelTag != nil {
 		channelId = (*channelTag)[1]
 	}
 
 	if channel, err := db.getChannel(channelId); err != nil {
-		return fmt.Errorf("failed to open channel db on save: %w", err)
+		return fmt.Errorf("failed to open channel db: %w", err)
 	} else {
 		key := make([]byte, 8)
 		binary.BigEndian.PutUint32(key, uint32(event.CreatedAt))

@@ -4,17 +4,20 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 
 	"github.com/fiatjaf/relayer/v2"
+	"github.com/rs/zerolog"
 	"github.com/urfave/cli/v2"
 	"gopkg.in/yaml.v3"
 )
 
-var servers = make(map[string]*relayer.Server)
+var (
+	log     = zerolog.New(os.Stderr).Output(zerolog.ConsoleWriter{Out: os.Stdout}).With().Timestamp().Logger()
+	servers = make(map[string]*relayer.Server)
+)
 
 func main() {
 	app := &cli.App{
@@ -53,7 +56,7 @@ func main() {
 						id := r.URL.Path[1:]
 
 						if _, ok := config.Servers[id]; !ok {
-							fmt.Printf("server %s not allowed\n", id)
+							log.Warn().Str("id", id).Msg("server not allowed")
 							return
 						}
 
@@ -65,7 +68,7 @@ func main() {
 							var err error
 							server, err = relayer.NewServer(relay)
 							if err != nil {
-								fmt.Println("error creating server:", err)
+								log.Error().Err(err).Str("id", id).Msg("error creating server")
 								return
 							}
 
@@ -75,7 +78,7 @@ func main() {
 					})
 
 					hostname := fmt.Sprintf("%s:%d", config.Host, config.Port)
-					fmt.Printf("listening at http://%s\n", hostname)
+					log.Info().Str("hostname", hostname).Msg("listening")
 					if err := http.ListenAndServe(hostname, nil); err != nil {
 						return err
 					}
@@ -87,6 +90,6 @@ func main() {
 	}
 
 	if err := app.Run(os.Args); err != nil {
-		log.Fatal(err)
+		log.Fatal().Err(err).Msg("failed to run cli")
 	}
 }
