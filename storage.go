@@ -75,6 +75,22 @@ func (db *lmdbchatbackend) getChannel(id string) (*lmdb.DBI, error) {
 func (db *lmdbchatbackend) QueryEvents(ctx context.Context, filter *nostr.Filter) (ch chan *nostr.Event, err error) {
 	ch = make(chan *nostr.Event)
 
+	// we only host kind 9
+	if len(filter.Kinds) > 1 || (len(filter.Kinds) == 1 && filter.Kinds[0] != 9) {
+		return ch, nil
+	}
+
+	// we only support querying by the "c" tag for now
+	if len(filter.Tags) > 1 {
+		return ch, nil
+	} else if len(filter.Tags) == 1 {
+		_, ok := filter.Tags["c"]
+		if !ok {
+			// there is a query for some other tag except "c"
+			return ch, nil
+		}
+	}
+
 	channelIds, _ := filter.Tags["c"]
 	if len(channelIds) == 0 {
 		channelIds = []string{ROOT_CHANNEL_ID}
