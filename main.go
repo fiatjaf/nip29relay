@@ -56,6 +56,11 @@ func main() {
 					http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 						id := r.URL.Path[1:]
 
+						if id == "" {
+							fmt.Fprintf(w, "use a nip44-capable nostr client to connect")
+							return
+						}
+
 						if _, ok := config.Servers[id]; !ok {
 							log.Warn().Str("id", id).Msg("server not allowed")
 							return
