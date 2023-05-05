@@ -29,22 +29,23 @@ func main() {
 				Aliases: []string{"c"},
 				Value:   "config.yml",
 				Usage:   "path of the config file",
-				Action: func(c *cli.Context, path string) error {
-					var config Config
-					b, err := ioutil.ReadFile(path)
-					if err != nil {
-						return err
-					}
-					if err := yaml.Unmarshal(b, &config); err != nil {
-						return err
-					}
-
-					c.Context = context.WithValue(c.Context, "config", config)
-					return nil
-				},
 			},
 		},
+		Before: func(c *cli.Context) error {
+			path := c.String("config")
 
+			var config Config
+			b, err := ioutil.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			if err := yaml.Unmarshal(b, &config); err != nil {
+				return err
+			}
+
+			c.Context = context.WithValue(c.Context, "config", config)
+			return nil
+		},
 		Commands: []*cli.Command{
 			{
 				Name:  "serve",
