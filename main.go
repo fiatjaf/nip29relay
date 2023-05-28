@@ -1,12 +1,10 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 	"os"
-	"path/filepath"
 
 	"github.com/fiatjaf/relayer/v2"
 	"github.com/rs/zerolog"
@@ -15,13 +13,14 @@ import (
 )
 
 var (
-	log     = zerolog.New(os.Stderr).Output(zerolog.ConsoleWriter{Out: os.Stdout}).With().Timestamp().Logger()
-	servers = make(map[string]*relayer.Server)
+	log    = zerolog.New(os.Stderr).Output(zerolog.ConsoleWriter{Out: os.Stdout}).With().Timestamp().Logger()
+	server *relayer.Server
+	config Config
 )
 
 func main() {
 	app := &cli.App{
-		Name:  "groupsrelay",
+		Name:  "n29",
 		Usage: "a nostr relay specifically designed for hosting public chat groups",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
@@ -34,7 +33,6 @@ func main() {
 		Before: func(c *cli.Context) error {
 			path := c.String("config")
 
-			var config Config
 			b, err := ioutil.ReadFile(path)
 			if err != nil {
 				return err
@@ -43,7 +41,9 @@ func main() {
 				return err
 			}
 
-			c.Context = context.WithValue(c.Context, "config", config)
+			relay := &Relay{storage: &lmdbchatbackend{lmdbPath: config.LMDBPath}}
+			server, _ = relayer.NewServer(relay)
+
 			return nil
 		},
 		Commands: []*cli.Command{
@@ -51,38 +51,7 @@ func main() {
 				Name:  "serve",
 				Usage: "starts the relay http/websocket server",
 				Action: func(c *cli.Context) error {
-					config := c.Context.Value("config").(Config)
-
-					http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-						id := r.URL.Path[1:]
-
-						if id == "" {
-							fmt.Fprintf(w, "use a nip44-capable nostr client to connect")
-							return
-						}
-
-						if _, ok := config.Servers[id]; !ok {
-							log.Warn().Str("id", id).Msg("server not allowed")
-							return
-						}
-
-						server, ok := servers[id]
-						if !ok {
-							dbPath := filepath.Join(config.LMDBRoot, id)
-							os.MkdirAll(dbPath, 0700)
-							relay := &Relay{storage: &lmdbchatbackend{lmdbPath: dbPath}}
-							var err error
-							server, err = relayer.NewServer(relay)
-							if err != nil {
-								log.Error().Err(err).Str("id", id).Msg("error creating server")
-								return
-							}
-
-							servers[id] = server
-						}
-						server.ServeHTTP(w, r)
-					})
-
+					http.Handle("/", server)
 					hostname := fmt.Sprintf("%s:%d", config.Host, config.Port)
 					log.Info().Str("hostname", hostname).Msg("listening")
 					if err := http.ListenAndServe(hostname, nil); err != nil {
