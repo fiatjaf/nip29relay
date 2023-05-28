@@ -55,7 +55,6 @@ func (r *Relay) GetNIP11InformationDocument() nip11.RelayInformationDocument {
 		PubKey:        pubkey,
 		Description:   "relay specialized in public chat groups",
 		SupportedNIPs: []int{29},
-		Contact:       "nostr:npub180cvv07tjdrrgpa0j7j7tmnyl2yr6yr7l8j4s3evf6u64th6gkwsyjh6w6",
 		Software:      "git@github.com:fiatjaf/nip29relay.git",
 		Version:       "pre-alpha",
 	}

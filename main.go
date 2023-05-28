@@ -41,10 +41,14 @@ func main() {
 				return err
 			}
 
-			relay := &Relay{storage: &lmdbchatbackend{lmdbPath: config.LMDBPath}}
-			server, _ = relayer.NewServer(relay)
+			relay := &Relay{
+				storage: &lmdbchatbackend{
+					lmdbPath: config.LMDBPath,
+				},
+			}
 
-			return nil
+			server, err = relayer.NewServer(relay)
+			return err
 		},
 		Commands: []*cli.Command{
 			{
