@@ -11,7 +11,6 @@ import (
 	"github.com/bmatsuo/lmdb-go/lmdb"
 	"github.com/mailru/easyjson"
 	"github.com/nbd-wtf/go-nostr"
-	"golang.org/x/exp/slices"
 )
 
 var serial uint32
@@ -21,8 +20,8 @@ type lmdbchatbackend struct {
 	lmdbEnv  *lmdb.Env
 
 	// events are indexed by their kind and then created_at timestamp only, then a serial integer for order consistency
-	groups map[string]*lmdb.DBI
-	mutex  sync.Mutex
+	groupdbs map[string]*lmdb.DBI
+	mutex    sync.Mutex
 }
 
 func (db *lmdbchatbackend) Init() error {
@@ -43,20 +42,21 @@ func (db *lmdbchatbackend) Init() error {
 	db.lmdbEnv = env
 
 	// create channels map of dbis
-	db.groups = make(map[string]*lmdb.DBI)
+	db.groupdbs = make(map[string]*lmdb.DBI)
 
 	return nil
 }
 
-func (db *lmdbchatbackend) getGroup(id string) (*lmdb.DBI, error) {
-	if !slices.Contains(config.Groups, id) {
-		return nil, fmt.Errorf("group '%s' not allowed", id)
+func (db *lmdbchatbackend) getGroup(id string) (*lmdb.DBI, *Group, error) {
+	group, ok := config.Groups[id]
+	if !ok {
+		return nil, nil, fmt.Errorf("group '%s' not allowed", id)
 	}
 
 	db.mutex.Lock()
 	defer db.mutex.Unlock()
-	if channel, ok := db.groups[id]; ok {
-		return channel, nil
+	if channel, ok := db.groupdbs[id]; ok {
+		return channel, &group, nil
 	}
 
 	// not opened yet, so open and store it
@@ -66,14 +66,14 @@ func (db *lmdbchatbackend) getGroup(id string) (*lmdb.DBI, error) {
 			return err
 		} else {
 			channel = &dbi
-			db.groups[id] = &dbi
+			db.groupdbs[id] = &dbi
 			return nil
 		}
 	}); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return channel, nil
+	return channel, &group, nil
 }
 
 func (db *lmdbchatbackend) QueryEvents(ctx context.Context, filter *nostr.Filter) (ch chan *nostr.Event, err error) {
@@ -90,7 +90,7 @@ func (db *lmdbchatbackend) QueryEvents(ctx context.Context, filter *nostr.Filter
 		switch kind {
 		case nostr.KindSimpleChatMessage, nostr.KindSimpleChatAction:
 			tagName = "g"
-		case nostr.KindSimpleChatMetadata, nostr.KindSimpleChatPermissions:
+		case nostr.KindSimpleChatMetadata, nostr.KindSimpleChatMembers, nostr.KindSimpleChatRoles, nostr.KindSimpleChatSubGroups:
 			tagName = "d"
 		default:
 			continue
@@ -128,57 +128,118 @@ func (db *lmdbchatbackend) QueryEvents(ctx context.Context, filter *nostr.Filter
 		go func(q query) {
 			defer wg.Done()
 
-			if group, err := db.getGroup(q.group); err != nil {
-				log.Error().Err(err).Str("group", q.group).Msg("failed to get channel")
+			if gdb, group, err := db.getGroup(q.group); err != nil {
+				log.Error().Err(err).Str("group", q.group).Msg("failed to get group")
 				return
 			} else {
-				db.lmdbEnv.View(func(txn *lmdb.Txn) error {
-					txn.RawRead = true
-
-					cursor, err := txn.OpenCursor(*group)
-					if err != nil {
-						log.Error().Err(err).Str("group", q.group).Msg("failed to open cursor")
-						return err
+				switch q.kind {
+				case nostr.KindSimpleChatMetadata,
+					nostr.KindSimpleChatRoles,
+					nostr.KindSimpleChatMembers,
+					nostr.KindSimpleChatSubGroups:
+					// make an event on demand
+					event := &nostr.Event{
+						CreatedAt: serverStartTime,
+						Kind:      q.kind,
+						Tags: nostr.Tags{
+							nostr.Tag{"d", q.group},
+						},
 					}
-					defer cursor.Close()
-
-					prefix := make([]byte, 6)
-					binary.BigEndian.PutUint16(prefix[0:2], uint16(q.kind))
-					binary.BigEndian.PutUint32(prefix[2:6], until)
-					nextKey := prefix
-
-					i := 0
-					for {
-						// exit early if the context was canceled
-						select {
-						case <-ctx.Done():
-							break
-						default:
+					switch q.kind {
+					case nostr.KindSimpleChatMetadata:
+						event.Tags = append(event.Tags,
+							nostr.Tag{"name", group.Name},
+							nostr.Tag{"picture", group.Picture},
+						)
+						if group.Private {
+							event.Tags = append(event.Tags, nostr.Tag{"private"})
 						}
+						if group.Closed {
+							event.Tags = append(event.Tags, nostr.Tag{"closed"})
+						}
+					case nostr.KindSimpleChatMembers:
+						if group.Roles == nil && len(group.Roles) == 0 {
+							return
+						}
+						for roleName, defs := range group.Roles {
+							for _, pubkey := range defs.Members {
+								event.Tags = append(event.Tags, nostr.Tag{"m", pubkey, roleName})
+							}
+						}
+					case nostr.KindSimpleChatRoles:
+						if group.Roles == nil && len(group.Roles) == 0 {
+							return
+						}
+						for name, defs := range group.Roles {
+							event.Tags = append(event.Tags,
+								append(
+									nostr.Tag{"role", name},
+									defs.Permissions...,
+								),
+							)
+						}
+					case nostr.KindSimpleChatSubGroups:
+						for id := range config.Groups {
+							if strings.HasPrefix(id, q.group) {
+								event.Tags = append(event.Tags, nostr.Tag{"g", id})
+							}
+						}
+					}
 
-						nextKey, v, err := cursor.Get(nextKey, nil, lmdb.PrevNoDup)
+					// finalize event created on demand
+					event.Sign(config.PrivateKey)
+					ch <- event
+
+				case nostr.KindSimpleChatMessage:
+					// actually query the database
+					db.lmdbEnv.View(func(txn *lmdb.Txn) error {
+						txn.RawRead = true
+
+						cursor, err := txn.OpenCursor(*gdb)
 						if err != nil {
-							break
+							log.Error().Err(err).Str("group", q.group).Msg("failed to open cursor")
+							return err
+						}
+						defer cursor.Close()
+
+						prefix := make([]byte, 6)
+						binary.BigEndian.PutUint16(prefix[0:2], uint16(q.kind))
+						binary.BigEndian.PutUint32(prefix[2:6], until)
+						nextKey := prefix
+
+						i := 0
+						for {
+							// exit early if the context was canceled
+							select {
+							case <-ctx.Done():
+								break
+							default:
+							}
+
+							nextKey, v, err := cursor.Get(nextKey, nil, lmdb.PrevNoDup)
+							if err != nil {
+								break
+							}
+
+							if ts := binary.BigEndian.Uint32(nextKey[0:4]); ts < since {
+								break
+							}
+
+							var evt nostr.Event
+							if err := json.Unmarshal(v, &evt); err != nil {
+								continue
+							}
+
+							ch <- &evt
+							i++
+							if i == limit {
+								break
+							}
 						}
 
-						if ts := binary.BigEndian.Uint32(nextKey[0:4]); ts < since {
-							break
-						}
-
-						var evt nostr.Event
-						if err := json.Unmarshal(v, &evt); err != nil {
-							continue
-						}
-
-						ch <- &evt
-						i++
-						if i == limit {
-							break
-						}
-					}
-
-					return nil
-				})
+						return nil
+					})
+				}
 			}
 		}(q)
 	}
@@ -203,7 +264,7 @@ func (db *lmdbchatbackend) SaveEvent(ctx context.Context, event *nostr.Event) er
 			continue
 		}
 
-		if group, err := db.getGroup(gtag[1]); err != nil {
+		if gdb, _, err := db.getGroup(gtag[1]); err != nil {
 			return fmt.Errorf("failed to open channel db: %w", err)
 		} else {
 			switch event.Kind {
@@ -217,7 +278,7 @@ func (db *lmdbchatbackend) SaveEvent(ctx context.Context, event *nostr.Event) er
 
 				err := db.lmdbEnv.Update(func(txn *lmdb.Txn) error {
 					val, _ := easyjson.Marshal(event)
-					return txn.Put(*group, key, val, 0)
+					return txn.Put(*gdb, key, val, 0)
 				})
 				if err != nil {
 					return fmt.Errorf("failed to store event in database: %w", err)

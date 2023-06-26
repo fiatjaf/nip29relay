@@ -7,15 +7,17 @@ import (
 	"os"
 
 	"github.com/fiatjaf/relayer/v2"
+	"github.com/nbd-wtf/go-nostr"
 	"github.com/rs/zerolog"
 	"github.com/urfave/cli/v2"
 	"gopkg.in/yaml.v3"
 )
 
 var (
-	log    = zerolog.New(os.Stderr).Output(zerolog.ConsoleWriter{Out: os.Stdout}).With().Timestamp().Logger()
-	server *relayer.Server
-	config Config
+	log             = zerolog.New(os.Stderr).Output(zerolog.ConsoleWriter{Out: os.Stdout}).With().Timestamp().Logger()
+	server          *relayer.Server
+	config          Config
+	serverStartTime = nostr.Now()
 )
 
 func main() {
