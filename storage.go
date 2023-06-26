@@ -147,10 +147,12 @@ func (db *lmdbchatbackend) QueryEvents(ctx context.Context, filter *nostr.Filter
 					}
 					switch q.kind {
 					case nostr.KindSimpleChatMetadata:
-						event.Tags = append(event.Tags,
-							nostr.Tag{"name", group.Name},
-							nostr.Tag{"picture", group.Picture},
-						)
+						if group.Name != "" {
+							event.Tags = append(event.Tags, nostr.Tag{"name", group.Name})
+						}
+						if group.Picture != "" {
+							event.Tags = append(event.Tags, nostr.Tag{"picture", group.Picture})
+						}
 						if group.Private {
 							event.Tags = append(event.Tags, nostr.Tag{"private"})
 						}

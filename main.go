@@ -37,10 +37,33 @@ func main() {
 
 			b, err := ioutil.ReadFile(path)
 			if err != nil {
-				return err
+				return fmt.Errorf("couldn't read config file at %s", path)
 			}
 			if err := yaml.Unmarshal(b, &config); err != nil {
-				return err
+				return fmt.Errorf("the contents of %s are not valid yaml", path)
+			}
+			if _, err := nostr.GetPublicKey(config.PrivateKey); err != nil {
+				return fmt.Errorf("private key is not defined on %s or is invalid", path)
+			}
+			if len(config.Groups) == 0 {
+				return fmt.Errorf("no groups defined, the relay can't work without any groups")
+			}
+			for _, group := range config.Groups {
+				for r, d := range group.Roles {
+					if r == "" {
+						return fmt.Errorf("can't have a role with empty name")
+					}
+					for _, m := range d.Members {
+						if !nostr.IsValidPublicKeyHex(m) {
+							return fmt.Errorf("members must be valid public key hex, not %s", m)
+						}
+					}
+					for _, p := range d.Permissions {
+						if p == "" {
+							return fmt.Errorf("can't have a blank permission")
+						}
+					}
+				}
 			}
 
 			relay := &Relay{
