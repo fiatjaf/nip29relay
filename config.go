@@ -3,6 +3,7 @@ package main
 type Config struct {
 	Host        string           `yaml:"host"`
 	Port        int              `yaml:"port"`
+	ServiceURL  string           `yaml:"service_url"`
 	LMDBPath    string           `yaml:"lmdb_path"`
 	PrivateKey  string           `yaml:"private_key"`
 	Description string           `yaml:"description"`

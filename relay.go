@@ -13,6 +13,12 @@ type Relay struct {
 	storage *lmdbchatbackend
 }
 
+var (
+	_ relayer.Relay         = (*Relay)(nil)
+	_ relayer.Informationer = (*Relay)(nil)
+	_ relayer.Auther        = (*Relay)(nil)
+)
+
 func (r *Relay) Name() string {
 	return "n29"
 }
@@ -25,8 +31,12 @@ func (r *Relay) Init() error {
 	return nil
 }
 
+func (r *Relay) ServiceURL() string {
+	return config.ServiceURL
+}
+
 func (r *Relay) AcceptEvent(ctx context.Context, evt *nostr.Event) bool {
-	// only accept nip29 events for now -- later we could also store kind:0
+	// only accept nip29 events
 	if evt.Kind == nostr.KindSimpleChatMessage || evt.Kind == nostr.KindSimpleChatAction {
 		gtags := evt.Tags.GetAll([]string{"g", "/"})
 		if len(gtags) == 0 || len(gtags) > 2 {

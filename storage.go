@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/bmatsuo/lmdb-go/lmdb"
+	"github.com/fiatjaf/relayer/v2"
 	"github.com/mailru/easyjson"
 	"github.com/nbd-wtf/go-nostr"
 )
@@ -132,6 +133,10 @@ func (db *lmdbchatbackend) QueryEvents(ctx context.Context, filter *nostr.Filter
 				log.Error().Err(err).Str("group", q.group).Msg("failed to get group")
 				return
 			} else {
+				if q.kind != nostr.KindSimpleChatMetadata && group.Private {
+					return
+				}
+
 				switch q.kind {
 				case nostr.KindSimpleChatMetadata,
 					nostr.KindSimpleChatRoles,
@@ -266,9 +271,32 @@ func (db *lmdbchatbackend) SaveEvent(ctx context.Context, event *nostr.Event) er
 			continue
 		}
 
-		if gdb, _, err := db.getGroup(gtag[1]); err != nil {
+		if gdb, group, err := db.getGroup(gtag[1]); err != nil {
 			return fmt.Errorf("failed to open channel db: %w", err)
 		} else {
+			// if the group is closed, only accept events from people that are in the list
+			if group.Closed || group.Private {
+				authedPubkey, ok := relayer.GetAuthStatus(ctx)
+				if !ok {
+					return fmt.Errorf("restricted: you're not authed")
+				}
+
+				// we will actually check the auth/nip42 thing instead of just the pubkey
+				// because we don't want other people publishing stuff to this relay even it's signed
+				// by whitelisted users -- that could cause confusion maybe
+				// nip29 clients must implement nip-42 regardless
+
+				for _, defs := range group.Roles {
+					for _, member := range defs.Members {
+						if member == authedPubkey {
+							goto whitelisted
+						}
+					}
+				}
+				return fmt.Errorf("restricted: you are not allowed to write")
+			}
+		whitelisted:
+
 			switch event.Kind {
 			// it's a message, store it
 			case nostr.KindSimpleChatMessage:
