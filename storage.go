@@ -221,7 +221,7 @@ func (db *lmdbchatbackend) QueryEvents(ctx context.Context, filter *nostr.Filter
 								break
 							}
 
-							if ts := binary.BigEndian.Uint32(nextKey[0:4]); ts < since {
+							if ts := binary.BigEndian.Uint32(nextKey[2:6]); ts < since {
 								break
 							}
 
