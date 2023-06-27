@@ -1,13 +1,13 @@
 package main
 
 type Config struct {
-	Host        string           `yaml:"host"`
-	Port        int              `yaml:"port"`
-	ServiceURL  string           `yaml:"service_url"`
-	LMDBPath    string           `yaml:"lmdb_path"`
-	PrivateKey  string           `yaml:"private_key"`
-	Description string           `yaml:"description"`
-	Groups      map[string]Group `yaml:"groups"`
+	Host           string           `yaml:"host"`
+	Port           int              `yaml:"port"`
+	PublicHostname string           `yaml:"public_hostname"`
+	LMDBPath       string           `yaml:"lmdb_path"`
+	PrivateKey     string           `yaml:"private_key"`
+	Description    string           `yaml:"description"`
+	Groups         map[string]Group `yaml:"groups"`
 }
 
 type Group struct {

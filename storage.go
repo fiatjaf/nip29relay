@@ -300,8 +300,8 @@ func (db *lmdbchatbackend) SaveEvent(ctx context.Context, event *nostr.Event) er
 			case nostr.KindSimpleChatMessage:
 				// it's a message, store it
 
-				if tag := event.Tags.GetFirst([]string{"g"}); tag == nil || len(*tag) != 3 || (*tag)[2] != config.ServiceURL {
-					return fmt.Errorf("invalid: \"g\" tag relay url is not present or is incorrect, should be %s", config.ServiceURL)
+				if tag := event.Tags.GetFirst([]string{"g"}); tag == nil || len(*tag) != 3 || (*tag)[2] != config.PublicHostname {
+					return fmt.Errorf("invalid: \"g\" tag relay url is not present or is incorrect, should be %s", config.PublicHostname)
 				}
 
 				key := make([]byte, 10)

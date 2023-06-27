@@ -32,7 +32,7 @@ func (r *Relay) Init() error {
 }
 
 func (r *Relay) ServiceURL() string {
-	return config.ServiceURL
+	return "wss://" + config.PublicHostname
 }
 
 func (r *Relay) AcceptEvent(ctx context.Context, evt *nostr.Event) bool {

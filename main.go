@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 
@@ -50,8 +49,11 @@ func main() {
 			if _, err := nostr.GetPublicKey(config.PrivateKey); err != nil {
 				return fmt.Errorf("private key is not defined on %s or is invalid", path)
 			}
-			if parsed, err := url.Parse(config.ServiceURL); err != nil || parsed.Host == "" || !strings.HasPrefix(parsed.Scheme, "ws") {
-				return fmt.Errorf("a service_url must be defined as a valid websocket url")
+			if config.PublicHostname == "" {
+				return fmt.Errorf("a public_hostname must be specified")
+			}
+			if len(strings.Split(config.PublicHostname, "/")) > 1 {
+				return fmt.Errorf("public_hostname must be just the domain (and port, if necessary)")
 			}
 			if len(config.Groups) == 0 {
 				return fmt.Errorf("no groups defined, the relay can't work without any groups")
@@ -78,7 +80,6 @@ func main() {
 			if config.Description == "" {
 				config.Description = "relay specialized in public chat groups"
 			}
-			strings.TrimSuffix(config.ServiceURL, "/")
 
 			// start relay server
 			relay := &Relay{
