@@ -296,10 +296,14 @@ func (db *lmdbchatbackend) SaveEvent(ctx context.Context, event *nostr.Event) er
 				return fmt.Errorf("restricted: you are not allowed to write")
 			}
 		whitelisted:
-
 			switch event.Kind {
-			// it's a message, store it
 			case nostr.KindSimpleChatMessage:
+				// it's a message, store it
+
+				if tag := event.Tags.GetFirst([]string{"g"}); tag == nil || len(*tag) != 3 || (*tag)[2] != config.ServiceURL {
+					return fmt.Errorf("invalid: \"g\" tag relay url is not present or is incorrect, should be %s", config.ServiceURL)
+				}
+
 				key := make([]byte, 10)
 				binary.BigEndian.PutUint16(key[0:2], uint16(event.Kind))
 				binary.BigEndian.PutUint32(key[2:6], uint32(event.CreatedAt))
@@ -311,7 +315,7 @@ func (db *lmdbchatbackend) SaveEvent(ctx context.Context, event *nostr.Event) er
 					return txn.Put(*gdb, key, val, 0)
 				})
 				if err != nil {
-					return fmt.Errorf("failed to store event in database: %w", err)
+					return fmt.Errorf("error: failed to store event in database: %w", err)
 				}
 			case nostr.KindSimpleChatAction:
 				// it's an action and we know it comes from a user allowed to perform it

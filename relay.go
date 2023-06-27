@@ -60,14 +60,10 @@ func (r *Relay) AcceptEvent(ctx context.Context, evt *nostr.Event) bool {
 
 func (r *Relay) GetNIP11InformationDocument() nip11.RelayInformationDocument {
 	pubkey, _ := nostr.GetPublicKey(config.PrivateKey)
-	description := "relay specialized in public chat groups"
-	if config.Description != "" {
-		description = config.Description
-	}
 	return nip11.RelayInformationDocument{
 		Name:          "n29",
 		PubKey:        pubkey,
-		Description:   description,
+		Description:   config.Description,
 		SupportedNIPs: []int{29},
 		Software:      "git@github.com:fiatjaf/nip29relay.git",
 		Version:       "pre-alpha",

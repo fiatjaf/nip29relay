@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 
 	"github.com/fiatjaf/relayer/v2"
 	"github.com/nbd-wtf/go-nostr"
@@ -35,6 +37,7 @@ func main() {
 		Before: func(c *cli.Context) error {
 			path := c.String("config")
 
+			// read config
 			b, err := ioutil.ReadFile(path)
 			if err != nil {
 				return fmt.Errorf("couldn't read config file at %s", path)
@@ -42,8 +45,13 @@ func main() {
 			if err := yaml.Unmarshal(b, &config); err != nil {
 				return fmt.Errorf("the contents of %s are not valid yaml", path)
 			}
+
+			// validate config
 			if _, err := nostr.GetPublicKey(config.PrivateKey); err != nil {
 				return fmt.Errorf("private key is not defined on %s or is invalid", path)
+			}
+			if parsed, err := url.Parse(config.ServiceURL); err != nil || parsed.Host == "" || !strings.HasPrefix(parsed.Scheme, "ws") {
+				return fmt.Errorf("a service_url must be defined as a valid websocket url")
 			}
 			if len(config.Groups) == 0 {
 				return fmt.Errorf("no groups defined, the relay can't work without any groups")
@@ -66,6 +74,13 @@ func main() {
 				}
 			}
 
+			// normalize config
+			if config.Description == "" {
+				config.Description = "relay specialized in public chat groups"
+			}
+			strings.TrimSuffix(config.ServiceURL, "/")
+
+			// start relay server
 			relay := &Relay{
 				storage: &lmdbchatbackend{
 					lmdbPath: config.LMDBPath,
